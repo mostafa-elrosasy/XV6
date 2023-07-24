@@ -91,3 +91,27 @@ sys_uptime(void)
   release(&tickslock);
   return xticks;
 }
+
+uint64
+sys_trace(void){
+  int mask;
+  struct proc *p = myproc();
+
+  argint(0, &mask);
+  p->mask = mask;
+  return 0;
+}
+
+uint64
+sys_sysinfo(void){
+  uint64 info; // user pointer to struct stat
+  argaddr(0, &info);
+  uint64 fm = freemem();
+  uint64 up = usedproc();
+  struct proc *p = myproc();
+  if(copyout(p->pagetable, info, (char *) &fm, sizeof(fm)) < 0)
+      return -1;
+  if(copyout(p->pagetable, info+8, (char *) &up, sizeof(up)) < 0)
+      return -1;
+  return 0;
+}
