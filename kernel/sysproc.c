@@ -70,14 +70,37 @@ sys_sleep(void)
 }
 
 
-#ifdef LAB_PGTBL
 int
 sys_pgaccess(void)
 {
   // lab pgtbl: your code here.
+  uint64 start_page;
+  int abits, npages;
+  int bitmask = 0;
+  pte_t *pte;
+  struct proc *p = myproc();
+
+  argaddr(0, &start_page);
+  argint(1, &npages);
+  argint(2, &abits);
+  if(npages > 32){
+    return -1;
+  }
+  for(int i=0; i < 32; i++){
+    pte = walk(p->pagetable, start_page + i * PGSIZE, 0);
+    if(*pte & PTE_A){
+      *pte = *pte ^ (PTE_A);
+      bitmask = bitmask | (1 << i);
+    }
+  }
+
+  if(copyout(p->pagetable, (uint64)abits, (char *)&bitmask, 4) < 0){
+    printf("couldn't copy");
+    return -1;
+  }
+  
   return 0;
 }
-#endif
 
 uint64
 sys_kill(void)
