@@ -49,7 +49,6 @@ usertrap(void)
   
   // save user program counter.
   p->trapframe->epc = r_sepc();
-  
   if(r_scause() == 8){
     // system call
 
@@ -76,6 +75,15 @@ usertrap(void)
   if(killed(p))
     exit(-1);
 
+  if (which_dev == 2 && p->ticks!=0 && p->handling_in_progress == 0){
+    p->current_tick++;
+    if(p->current_tick > p->ticks){
+      p->handling_in_progress = 1;
+      p->current_tick = 0;
+      memmove(p->trapframe_return, p->trapframe, sizeof(struct trapframe));
+      p->trapframe->epc = p->handler;
+    }
+  } 
   // give up the CPU if this is a timer interrupt.
   if(which_dev == 2)
     yield();
@@ -90,7 +98,6 @@ void
 usertrapret(void)
 {
   struct proc *p = myproc();
-
   // we're about to switch the destination of traps from
   // kerneltrap() to usertrap(), so turn off interrupts until
   // we're back in user space, where usertrap() is correct.
