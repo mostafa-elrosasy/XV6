@@ -10,7 +10,7 @@
  * the kernel's page table.
  */
 pagetable_t kernel_pagetable;
-
+int cow_pages[32733] = {0};
 extern char etext[];  // kernel.ld sets this to end of kernel code.
 
 extern char trampoline[]; // trampoline.S
@@ -308,7 +308,7 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
   pte_t *pte;
   uint64 pa, i;
   uint flags;
-  char *mem;
+  // char *mem;
 
   for(i = 0; i < sz; i += PGSIZE){
     if((pte = walk(old, i, 0)) == 0)
@@ -316,12 +316,17 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
     if((*pte & PTE_V) == 0)
       panic("uvmcopy: page not present");
     pa = PTE2PA(*pte);
+    if (!(*pte & PTE_W) && !(*pte & PTE_COW)){
+      *pte |= PTE_RO;
+    }else{
+      *pte ^= PTE_W;
+    }
+    *pte |= PTE_COW;
     flags = PTE_FLAGS(*pte);
-    if((mem = kalloc()) == 0)
-      goto err;
-    memmove(mem, (char*)pa, PGSIZE);
-    if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
-      kfree(mem);
+    if (cow_pages[(int)(pa-KERNBASE)/PGSIZE] == 0)
+      cow_pages[(int)(pa-KERNBASE)/PGSIZE]++;
+    cow_pages[(int)(pa-KERNBASE)/PGSIZE]++;
+    if(mappages(new, i, PGSIZE, (uint64)pa, flags) != 0){
       goto err;
     }
   }
@@ -351,7 +356,9 @@ uvmclear(pagetable_t pagetable, uint64 va)
 int
 copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
 {
-  uint64 n, va0, pa0;
+  uint64 n, va0, pa0, *mem;
+  pte_t *pte;
+  uint flags;
 
   while(len > 0){
     va0 = PGROUNDDOWN(dstva);
@@ -361,7 +368,21 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
     n = PGSIZE - (dstva - va0);
     if(n > len)
       n = len;
-    memmove((void *)(pa0 + (dstva - va0)), src, n);
+
+    pte = walk(pagetable, va0, 0);
+    if((*pte && PTE_COW)){
+      mem = (uint64*)kalloc();
+      memmove((char*)mem, (char*)pa0, PGSIZE);
+      *pte |= PTE_W;
+      *pte ^= PTE_COW;
+      flags = PTE_FLAGS(*pte);
+      *pte = PA2PTE(mem);
+      *pte |= flags;
+      kfree((uint64*)pa0);
+      memmove((void *)((uint64)mem + (dstva - va0)), src, n);
+    }else{
+      memmove((void *)(pa0 + (dstva - va0)), src, n);
+    }
 
     len -= n;
     src += n;
